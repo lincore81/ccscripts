@@ -1,22 +1,25 @@
-base_url = "https://raw.githubusercontent.com/lincore81/ccscripts/master/"
-
-packages = {
-    arc = "arc",
-    cat = "cat",
-    less = "less",
-    touch = "touch",
-    libgui = "libs/gui",
-    libless = "libs/libless",
-    libpickle = "libs/libpickle",
-    libprototype = "libs/prototype",
-    librntp = "libs/rntp",
-    libutil = "libs/util",
-    libs = {
-        depends = {"libgui", "libless", "libpickle", "libprototype", "librntp", "libutil"}
-    },
-    turtle = "turtle.arc",    
-    base = {
-        depends = {"arc", "cat", "less", "touch", "libs", "turtle"}
+{
+    base_url = "https://raw.githubusercontent.com/lincore81/ccscripts/master/",    
+    file_version = 1,
+    file_type = "lccc.pacman.repository-index",
+    maintainer = "lincore",
+    packages = {
+        arc = "arc",
+        cat = "cat",
+        less = "less",
+        touch = "touch",
+        libgui = "libs/gui",
+        libless = "libs/libless",
+        libpickle = "libs/libpickle",
+        libprototype = "libs/prototype",
+        librntp = "libs/rntp",
+        libutil = "libs/util",
+        libs = {
+            depends = {"libgui", "libless", "libpickle", "libprototype", "librntp", "libutil"}
+        },
+        turtle = "turtle.arc",    
+        base = {
+            depends = {"arc", "cat", "less", "touch", "libs", "turtle"}
+        },
     },
 }
-
