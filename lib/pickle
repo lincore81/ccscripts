@@ -1,0 +1,131 @@
+-- pickle.lua - table serialization
+-- This module can serialize given tables using lua syntax.
+-- table keys can be strings or numbers, supported values are
+-- string, number, boolean and table.
+--
+-- Functions:
+--  dump(table, [file])
+--      Write the contents of <table> to <file>. If <file> is a string, treat
+--      it as a filename, otherwise as an open file object.
+--      If <file> is omitted, write the result to stdout using print.
+--
+--  dumps(table)
+--      Write the contents of <table> to a string and return it.
+--
+--  load(file)
+--      Load the content of <file> and return it as a table. Any table saved
+--      with dump can be restored this way. If <file> is a string it will be
+--      treated as a file name, otherwise as an open file object.
+--
+--  loads(str)
+--      Like above, but loads a table from a given string. Returns the table.
+
+
+local _TAB_WIDTH = 2
+
+
+-- Return a subset of path up to the last slash "/" (exclusive).
+function get_dir_string(path)
+	local pos = string.find(string.reverse(path), "/", 1, true)
+	if not pos then
+		return ""
+	else
+		pos = string.len(path) - pos
+		return string.sub(path, 1, pos), string.sub(path, pos + 1)
+	end
+end
+
+function dump(tabl, file)
+    local str = dumps(tabl)
+    if not file then
+        print(str)
+    elseif type(file) == "string" then -- treat as file name
+        local f, err = io.open(file, "w")
+        if not f then error(err) end
+        f:write(str)
+        f:close()        
+    else
+        file:write(str)
+    end
+end
+
+
+function dumps(value)
+    return represent(value, 1)
+end
+
+function loadsafe(filename, defaults)
+    defaults = defaults or {}
+    if fs.exists(filename) then
+        return load(filename), true
+    else
+        dir = get_dir_string(filename)
+        if dir ~= "" then fs.makeDir(dir) end
+        dump(defaults, filename)
+    end
+end
+
+
+function load(file)
+    local f, err
+    if type(file) == "string" then
+        f, err = io.open(file)
+        if not f then error(err, 2) end
+        file = f
+    end
+    local str = file:read("*a")
+    if f then
+        f:close()
+    end
+    return loads(str)
+end
+
+function loads(str)
+    local f = loadstring("_pickled_data = " .. str)
+    f()
+    return _pickled_data
+end
+
+
+function representKey(k)
+    t = type(k)
+    if t == "string" then
+        return '["' .. k ..'"]'
+    elseif t == "number" then
+        return "[" .. tostring(k) .. "]"
+    else
+        error("Using this variable type as table key is not supported: " .. t)
+    end
+end
+
+-- does not handle circular references properly
+function representTable(tabl, recursion)
+    local recursion = recursion or 0
+    if recursion >= 10 then
+        return tostring(tabl)
+    end
+    if tabl.__get_state__ and type(tabl.__get_state__) == "function" then
+        tabl = tabl:__get_state__()
+    end
+    local lines = {}
+    for k, v in pairs(tabl) do
+        table.insert(lines, string.rep(" ", recursion * _TAB_WIDTH) ..
+                representKey(k) .. " = " .. represent(v, recursion) .. ",")
+    end
+    return table.concat(lines, "\n")
+end
+
+function represent(variable, recursion)
+    local recursion = recursion or 0
+    local t = type(variable)
+    if t == "number" or t == "boolean" then
+        return tostring(variable)
+    elseif t == "string" then
+        return '"' .. variable .. '"'
+    elseif t == "table" then
+        result = representTable(variable, recursion + 1)
+        return "{\n" .. result .. "\n" .. string.rep(" ", recursion * _TAB_WIDTH) .. "}"
+    else
+        error("Pickling this variable type is not supported: " .. t)
+    end        
+end

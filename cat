@@ -1,0 +1,18 @@
+args = {...}
+if #args > 0 then
+	for i = 1, #args, 1 do
+		read(args[i])
+	end
+else
+	print("Usage: cat file1 [file2 ... fileN]")
+end
+
+function read(filename)
+	local file = fs.open(filename, "r")
+		if not file then
+			error("Could not open file" .. filename .. ".")
+		end
+		local data = file.readAll()
+	file.close()
+	print(data)
+end

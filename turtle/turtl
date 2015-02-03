@@ -1,0 +1,490 @@
+local TURTL = {
+	FUEL_SLOT = 1,
+	MIN_SLOT = 1,
+	MAX_SLOT = 16,
+}
+
+OUT_OF_BUILDING_MATERIAL = 255
+
+function isFinite(number)
+	return number ~= 1/0 and number == number -- is not inf and is not NaN (NaN == NaN is false)
+end
+
+function checkFuel(slot, quantity)
+	if not slot 	then slot = TURTL.FUEL_SLOT end
+	if not quantity	then quantity = 1 end
+	fuelLevel = turtle.getFuelLevel()
+	if fuelLevel < 1 then
+		if (slot > 0) then turtle.select(slot) end
+		if turtle.refuel(quantity) then
+			return true, fuelLevel
+		else
+			error("Out of fuel! (slot #" .. slot .. ")")
+		end
+	end
+	return false, fuelLevel
+end
+
+function lt(times)
+	if not times then times = 1 end
+	for i = 1, times do
+		turtle.turnLeft()
+	end
+end
+
+function rt(times)
+	if not times then times = 1 end
+	for i = 1, times do
+		turtle.turnRight()
+	end
+end
+
+function turn(right, times)
+	if right then
+		rt(times)
+	else
+		lt(times)
+	end
+	return not right -- useful for moving in a snake pattern: fd-fd-rt-fd-rt-fd-fd-lt-fd-lt
+end
+
+function sidestep(right, times, force, tries, fuelslot)
+	local turnToSide, turnForward
+	if right then
+		turnToSide  = rt
+		turnForward = lt
+	else
+		turnToSide  = lt
+		turnForward = rt
+	end
+	turnToSide()
+	fd(times, force, tries, fuelslot)
+	turnForward()
+end
+
+function fd(times, force, tries, fuelslot)
+	if not times then times = 1 end
+	if tries and tries < 0 then tries = nil end
+	for i = 1, times do
+		checkFuel(fuelslot)
+		t = 0
+		while not turtle.forward() do
+			if not force or (tries and t == tries) then
+				error("Can't go forward, there is something in the way.")
+			end
+			turtle.dig()
+			os.sleep(0.5)
+			t = t + 1
+		end
+	end
+end
+
+function down(times, force, tries, fuelslot)
+	if not times then times = 1 end
+	if tries and tries < 0 then tries = nil end
+	for i = 1, times do
+		checkFuel(fuelslot)
+		t = 0
+		while not turtle.down() do
+			if not force or (tries and t == tries) then
+				error("Can't go down, there is something in the way.")
+			end
+			turtle.digDown()
+			os.sleep(0.5)
+			t = t + 1
+		end
+	end
+end
+
+dn = down
+
+function up(times, force, tries, fuelslot)
+	if not times then times = 1 end
+	if tries and tries < 0 then tries = nil end
+	for i = 1, times do
+		checkFuel(fuelslot)
+		t = 0
+		while not turtle.up() do
+			if not force or (tries and t == tries) then
+				error("Can't go up, there is something in the way.")
+			end
+			turtle.digUp()
+			os.sleep(0.5)
+			t = t + 1
+		end
+	end
+end
+
+function moveVertical(times, force, tries, fuelslot)
+	if times > 0 then
+		up(times, force, tries, fuelslot)
+	else
+		times = times * (-1)
+		down(times, force, tries, fuelslot)
+	end
+end
+
+function hasGps(timeout)
+	timeout = timeout or 3
+	return gps.locate(timeout) ~= nil
+end
+
+function readSignAsScript(p, separator)
+	separator = separator or "@"
+	pattern = "[^"..separator.."]+"
+	results = {}
+	stringResults = {}
+
+	signText = table.concat({p.read()}) .. table.concat({p.readDown()}) .. table.concat({p.readUp()})
+	if signText == "exit" then
+		return signText
+	elseif signText ~= "" then
+		for seq in string.gmatch(signText, pattern) do
+			local func, err = loadstring(seq)
+			if func then
+				table.insert(results, func)
+				table.insert(stringResults, seq)
+			else
+				error("Bad script on sign:\n"..signText.."\n"..err)
+			end
+		end
+	end
+	return results, stringResults
+end
+
+function getReader(p)
+	if not p then
+		p = peripheral.wrap("right")
+		if not p then
+			peripheral.wrap("left")
+			if not p then
+				error("Wait, I can't read! Combine me with a sign first.")
+			end
+		end
+	end
+	if not p.read then
+		error("I need a reader peripheral to read signs.")
+	end
+	return p
+end
+
+function reader(p, initialCmd, statefile, restart)
+	p = getReader(p)
+	statefile = statefile or "/.reader"
+	local cmdStrings = (not restart and loadState(statefile)) or {initialCmd or "fd()"}
+	local cmds = {}
+	for i, v in ipairs(cmdStrings) do
+		local cmd, err = loadstring(v)
+		if not cmd then
+			error("Initial command contains errors: " .. err)
+		end
+		cmds[i] = cmd
+	end
+	if statefile then print("Continuing from last state.") end
+
+	local newCmds, newCmdStrings
+	i = 1
+	print("next: "..cmdStrings[1])
+	while true do
+		newCmds, newCmdStrings = readSignAsScript(p)
+		if newCmds == "exit" then
+			break
+		elseif #newCmds > 0 then
+			cmds = newCmds
+			cmdStrings = newCmdStrings
+			print(table.concat(cmdStrings, "\n"))
+			saveState(cmdStrings, statefile)
+			print("next: "..cmdStrings[1])
+		end
+		cmds[1]()
+		if #cmds > 1 then
+			table.remove(cmds, 1)
+			table.remove(cmdStrings, 1)
+			saveState(cmdStrings, statefile)
+			print("next: "..cmdStrings[1])
+		end
+		sleep(0.1)
+	end
+	print("Done.")
+end
+
+function area(width, height, depth, force, tries, fuelslot)
+	local fdStep, rtStep, upStep
+	fdStep = depth  / depth -- {+1, -1}
+	rtStep = width  / width
+	upStep = height / height
+
+	local turnRight = (rtStep > 0)
+	local absWidth  = math.abs(width)
+	local absHeight = math.abs(height)
+	local absDepth  = math.abs(depth)
+	local x, y, z, i   = 1, 1, 1, 0
+
+	if fdStep < 0 then -- go backwards
+		rt(2)
+		turnRight = not turnRight
+	end
+
+	return function()
+		if i > 0 then
+			if z < absDepth then
+				fd(1, force, tries, fuelslot)
+				z = z + 1
+			elseif z == absDepth then
+				z = 1
+				if x < absWidth then
+					turn(turnRight)
+					fd(1, force, tries, fuelslot)
+					turnRight = turn(turnRight)
+					x = x + 1
+				elseif x == absWidth then
+					x = 1
+					if y < absHeight then
+						moveVertical(upStep, force, tries, fuelslot)
+						rt(2)
+						y = y + 1
+					elseif y == absHeight then
+						rt(2)
+						return
+					end
+				end
+			end
+		end
+		i = i + 1
+		return x * rtStep, y * upStep, z * fdStep, i
+	end
+end
+
+-- the coordinates are relative to the turtle's orientation,
+-- i. e. a positive width always points to the right.
+function move(depth, width, height, force, tries, fuelslot)
+	local az = math.abs(depth)
+	local ax = math.abs(width)
+	local ay = math.abs(height)
+
+	if depth < 0 then --turn around
+		lt(2)
+	end
+	fd(az, force, tries, fuelslot)
+	if width > 0 then
+		rt()
+	else
+		lt()
+	end
+	fd(ax, force, tries, fuelslot)
+	if width > 0 then
+		lt()
+	else
+		rt()
+	end
+	if height > 0 then
+		up(ay, force, tries, fuelslot)
+	else
+		down(ay, force, tries, fuelslot)
+	end
+end
+
+function slots(from, to)
+	from = from or TURTL.MIN_SLOT
+	to = to or TURTL.MAX_SLOT
+	if from < 0 then from = TURTL.MAX_SLOT - from + 1 end
+	if to < 0 then to = TURTL.MAX_SLOT - to + 1 end
+	assert(	from >= TURTL.MIN_SLOT and
+			from <= TURTL.MAX_SLOT and
+			to >= TURTL.MIN_SLOT and
+			to <= TURTL.MAX_SLOT
+			)
+	local step
+	if from > to then step = -1 else step = 1 end
+	local slot = from
+	--print(string.format("from=%d, to=%d, step=%d", from, to, step))
+	return function()
+		if slot < TURTL.MIN_SLOT or slot > TURTL.MAX_SLOT then
+			return
+		else
+			turtle.select(slot)
+			local i = slot
+			slot = slot + step
+			return i
+		end
+	end
+end
+
+function getMaxStackSize(slot)
+	return turtle.getItemCount(slot) + turtle.getItemSpace(slot)
+end
+
+function manageMaterial(matSlot, direction, keep, verbose)
+	local stored = getAmount(matSlot)
+	local noErrors, amountManaged
+	local msg
+	if stored > keep then
+		msg = "Stored %d pieces of material #%d, keeping %d."
+		noErrors, amountManaged = storeMaterial(matSlot, direction, keep)
+	elseif stored < keep then
+		msg = "Loaded %d pieces of material #%d, got a total of %d."
+		noErrors, amountManaged = loadMaterial(matSlot, direction, keep)
+	else
+		msg = "No hauling."
+		noErrors = true
+		amountManaged = 0
+	end
+	if verbose then
+		print(string.format(msg, amountManaged, matSlot, keep))
+	end
+	return noErrors, amountManaged
+end
+mgMat = manageMatterial
+
+function drop(direction, amount)
+	if not direction then
+		return turtle.drop(amount)
+	elseif direction == "up" or direction == 1 then
+		return turtle.dropUp(amount)
+	elseif direction == "down" or direction == -1 then
+		return turtle.dropDown(amount)
+	else
+		error("Can't drop in direction '"..direction.."'.")
+	end
+end
+
+function suck(direction)
+	if not direction then
+		return turtle.suck()
+	elseif direction == "up" or direction == 1 then
+		return turtle.suckUp()
+	elseif direction == "down" or direction == -1 then
+		return turtle.suckDown()
+	else
+		error("Can't suck in direction '"..direction.."'.")
+	end
+end
+
+
+function getAmount(defSlot)
+	local stored = 0
+	turtle.select(defSlot)
+	for slot = TURTL.MIN_SLOT, TURTL.MAX_SLOT do
+		if turtle.compareTo(slot) then
+			stored = stored + turtle.getItemCount(slot)
+		end
+	end
+	return stored
+end
+
+function loadMaterial(defSlot, direction, targetAmount)
+	assert(targetAmount >= 0)
+	local noErrors = true
+	local amountLoaded = 0
+	turtle.select(defSlot)
+	while getAmount(defSlot) < targetAmount do
+		if not suck(direction) then
+			error("Could not get materials from direction " .. tostring(direction) .. ".")
+		end
+	end
+	return storeMaterial(defSlot, direction, targetAmount)
+end
+loadMat = loadMaterial
+
+
+function storeMaterial(defSlot, direction, keepAmount)
+	assert(keepAmount >= 0)
+	local count = getAmount(defSlot)
+	local noErrors = true
+	if count <= keepAmount then
+		return noErrors, count - keepAmount
+	end
+	local maxStackSize = getMaxStackSize(defSlot)
+	local result = 0
+
+	for slot = TURTL.MAX_SLOT, TURTL.MIN_SLOT, -1 do
+		turtle.select(slot)
+		if turtle.compareTo(defSlot) and slot ~= defSlot then
+			local dropCount = math.min(count - keepAmount, turtle.getItemCount(slot), maxStackSize)
+			if dropCount > 0 then
+				if drop(direction, dropCount) then
+					count = count - dropCount
+					result = result + dropCount
+				else
+					noErrors = false
+				end
+			end
+		end
+	end
+	local dropCount = math.min(count - keepAmount, turtle.getItemCount(defSlot), maxStackSize)
+	if dropCount > 0 then
+		turtle.select(defSlot)
+		if drop(direction, dropCount) then
+			count = count - dropCount
+			result = result + dropCount
+		else
+			noErrors = false
+		end
+	end
+	return noErrors, result
+end
+storeMat = storeMaterial
+
+
+function useMaterial(defSlot, useLastItem)
+	turtle.select(defSlot)
+	for slot = TURTL.MAX_SLOT, TURTL.MIN_SLOT, -1 do
+		if turtle.compareTo(slot) and slot ~= defSlot then
+			turtle.select(slot)
+			return slot
+		end
+	end
+	if turtle.getItemCount(defSlot) > 0 or useLastItem then
+		turtle.select(defSlot)
+		return defSlot
+	end
+end
+useMat = useMaterial
+
+function fillSlot(slot)
+	local count = turtle.getItemCount(slot)
+	local space = turtle.getItemSpace(slot)
+	local maxStackSize = count + space
+	for s in slots(-1, 1) do
+		if s ~= slot and turtle.compareTo(slot) then
+			local amount = math.min(space, turtle.getItemCount(s))
+			turtle.transferTo(slot, amount)
+			space = space - amount
+			if space <= 0 then return end
+		end
+	end
+end
+
+function placeBlock(replaceBlocks)
+	if turtle.detectDown() then
+		if not turtle.compareDown() and replaceBlocks then
+			if not turtle.digDown() then
+				return false
+			end
+		else
+			return true
+		end
+	end
+	return turtle.placeDown()
+end
+place = placeBlock
+
+function saveState(state, filepath)
+	local str = textutils.serialize(state)
+	local handle = fs.open(filepath, "w")
+	if not handle then
+		error("Could not open file '" .. filepath .. "' to write.")
+	end
+	handle.write(str)
+	handle.close()
+end
+
+function loadState(filepath)
+	if not fs.exists(filepath) then	return end
+	local handle = fs.open(filepath, "r")
+		if not handle then
+		error("Could not open file '" .. filepath .. "' to read.")
+	end
+	local str = handle.readAll()
+	return textutils.unserialize(str)
+end

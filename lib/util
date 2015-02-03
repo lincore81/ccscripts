@@ -1,0 +1,252 @@
+DEFAULT_ARG_SEP = " "
+DEFAULT_LINE_TERM = "\n"
+more_argument_separator = DEFAULT_ARG_SEP
+more_line_terminator = DEFAULT_LINE_TERM
+
+
+function printt(t, recursion, indent)
+    recursion = recursion or 0
+    indent = indent or 0
+    for k, v in pairs(t) do
+        if recursion > 0 and type(v) == "table" then
+            print(string.rep(" ", indent) .. tostring(k) .. ":")
+            printt(v, recursion - 1, indent + 2)
+        else
+            print(string.rep(" ", indent) .. tostring(k) .. " = " .. tostring(v))
+        end
+    end
+end
+_G["printt"] = printt
+
+
+
+function centerstr(str, width)
+  if #str < width then
+    local result = string.rep(" ", (width - #str) / 2) .. str
+    return result .. string.rep(" ", width - #result)
+  elseif #str > width then
+    return string.sub(str .. "...", 1, #width - 3)
+  else
+    return str
+  end
+end
+
+
+function more_print(...)
+  stringbuf = {}
+  for _, str in ipairs({...}) do
+    table.insert(stringbuf, str)
+  end
+  line = table.concat(stringbuf, more_argument_separator)
+  table.insert(_moretext, line)
+end
+
+
+function more_begin(arg_sep, line_term)
+  more_argument_separator = arg_sep or DEFAULT_ARG_SEP
+  more_line_terminator = line_term or DEFAULT_LINE_TERM
+  _oldprint = _G.print
+  _G.print = more_print
+  _moretext = {}
+end
+
+
+function more_end()
+  _G.print = _oldprint
+  _oldprint = nil
+  _moretext = table.concat(_moretext, more_line_terminator)
+  less(_moretext)
+  _moretext = nil
+end
+
+
+function with_more(func, ...)
+  more_begin()
+  func(...)
+  more_end()
+end
+  
+os.reloadAPI = function(str)
+  os.unloadAPI(str)
+  return os.loadAPI(str)
+end
+
+
+
+KEY_UP          = 200
+KEFT_LEFT       = 203
+KEY_RIGHT       = 205
+KEY_DOWN        = 208
+
+KEY_Q           = 16 
+KEY_W           = 17
+KEY_A           = 30
+KEY_S           = 31
+KEY_D           = 32
+
+KEY_R           = 19
+KEY_F           = 33
+
+KEY_HOME = 199
+KEY_END  = 207
+
+ 
+-- explode(seperator, string)
+function _explode(p, d)
+  local t, ll
+  t={}
+  ll=0
+  if(#p == 1) then return {p} end
+    while true do
+      l=string.find(p,d,ll,true) -- find the next d in the string
+      if l~=nil then -- if "not not" found then..
+        table.insert(t, string.sub(p,ll,l-1)) -- Save it in our array.
+        ll=l+1 -- save just after where we found it for searching next time.
+      else
+        table.insert(t, string.sub(p,ll)) -- Save what's left in our array.
+        break -- Break at end, as it should be, according to the lua manual.
+      end
+    end
+  return t
+end
+ 
+function _read_textfile(caption)
+    local file = fs.open(caption, "r")
+    if not file then
+        error("Could not open file: " .. caption)
+    end
+    local lines = {}
+    while true do
+        line = file.readLine()
+        if line then
+            table.insert(lines, line)
+        else
+            break
+        end
+    end
+    file.close()
+    return lines
+end
+ 
+function _split_lines(lines, width)
+    local rows = {}
+    local lineNumbers = {}
+    local line
+    for i = 1, #lines do
+        line = lines[i]
+        while string.len(line) > width do
+            local row = string.sub(line, 1, width)
+            table.insert(rows, row)
+            table.insert(lineNumbers, i)
+            line = string.sub(line, width + 1)
+        end
+        table.insert(rows, line)
+        table.insert(lineNumbers, i)
+    end
+    return rows, lineNumbers
+end
+ 
+ 
+function _print_text(lines, offset, length)
+    for i = 1, length - 1 do
+        term.setCursorPos(1, i)
+        term.write(lines[offset+i])
+    end
+end
+ 
+function _print_statusbar(caption, text, view)
+    local line1 = text.lineNumbers[view.rowOffset + 1]
+    local line2Index = view.rows - 1 + (view.rowOffset)
+    if (line2Index > #text.lineNumbers) then
+        line2Index = #text.lineNumbers
+    end
+    local line2 = text.lineNumbers[line2Index]
+    local progress
+    if text.lineCount > 0 then
+        progress = line2 / text.lineCount * 100
+    else
+        progress = 100
+    end
+    local statusbar
+    if caption ~= nil then
+        statusbar = string.format("[%s lines %d-%d/%d (%d%%)", caption, line1, line2, text.lineCount, progress)
+    else
+        statusbar = string.format("[lines %d-%d/%d (%d%%)  ", line1, line2, text.lineCount, progress)
+    end
+    statusbar = statusbar .. string.rep(" ", view.columns - #statusbar - 1) .. "]"
+    term.setCursorPos(1, view.rows)
+    term.write(statusbar)
+end
+ 
+function _print_screen(caption, text, view)
+    term.clear()
+    _print_text(text.lines, view.rowOffset, view.rows)
+    _print_statusbar(caption, text, view)
+end
+ 
+function _scroll_lines(amount, text, view)
+    if amount == "home" then
+        view.rowOffset = 1
+        return
+    elseif amount == "end" then
+        view.rowOffset = #text.lines - view.rows + 1
+        return
+    else
+        local newOffset = view.rowOffset + amount
+        newOffset = math.min(newOffset, #text.lines - view.rows + 1)
+        newOffset = math.max(newOffset, 0)
+        view.rowOffset = newOffset
+    end
+end
+ 
+ 
+function _handle_events(caption, text, view)
+    event, key = os.pullEvent("key")
+    if key == KEY_UP or key == KEY_W then
+        _scroll_lines(-1, text, view)
+        _print_screen(caption, text, view)
+    elseif key == KEY_DOWN or key == KEY_S then
+        _scroll_lines(1, text, view)
+        _print_screen(caption, text, view)
+    elseif key == KEY_A then
+        _scroll_lines(-view.rows + 1, text, view)
+        _print_screen(caption, text, view)
+    elseif key == KEY_D then
+        _scroll_lines(view.rows - 1, text, view)
+        _print_screen(caption, text, view)
+    elseif key == KEY_HOME then
+        _scroll_lines("home", text, view)
+        _print_screen(caption, text, view)
+    elseif key == KEY_END then
+        _scroll_lines("end", text, view)
+        _print_screen(caption, text, view)
+    elseif key == KEY_Q then
+        return true -- QUIT
+    end
+end
+
+function less(str, caption)
+    local lines = _explode(str, "\n")
+    local width, height = term.getSize()
+    local rows, lineNumbers = _split_lines(lines, term.getSize())
+ 
+    local text = {
+        lineCount = #lines,
+        lines = rows,
+        lineNumbers = lineNumbers
+    }
+    local view = {
+        columns = width,
+        rows    = height,
+        rowOffset = 0
+    }
+ 
+    _print_screen(caption, text, view)
+    local quit = false
+    repeat
+        quit = _handle_events(caption, text, view)
+    until quit
+    term.clear()
+    term.setCursorPos(1, 1)
+    os.pullEvent() -- get rid of char event for typing 'q'
+end

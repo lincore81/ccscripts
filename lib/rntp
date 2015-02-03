@@ -1,0 +1,201 @@
+os.loadAPI("/lib/prototype")
+os.loadAPI("/lib/util")
+
+
+BROADCAST = 65535
+
+
+function listen(...)
+    local nodes = {...}
+    for _,node in ipairs(nodes) do
+        node:open()
+    end
+    while true do
+        sender, msg = rednet.receive()
+        for _,node in ipairs(nodes) do
+            node:onMessage(sender, msg)
+        end
+    end
+    for _,node in ipairs(nodes) do
+        node:close()
+    end
+end
+
+function _pack(receiver, service, data)
+    return {
+        channel = receiver,
+        service_name = service.name,
+        data = data,
+    }
+end
+
+function _unpack(sender, data)
+    data.sender = sender
+    return data
+end
+
+
+function _send(receiver, service, data)
+    local msg = _pack(receiver, service, data)
+    --print("Sending on channel " .. tostring(receiver) .. ": ")
+    --printt(msg)
+    rednet.send(receiver, msg)
+end
+
+function _reply(tomsg, service, data)
+    _send(tomsg.sender, service, data)
+end
+
+
+
+Service = Object:new{
+    __objname = "rntp.Service",
+}
+
+function Service:create(name)
+    return Service:new{name = name}
+end
+
+function Service:receive(node, msg, cache)
+    error("Service:process must be overriden.")
+end
+
+function Service:setup(node, cache) end
+function Service:teardown(node, cache) end
+
+
+Ping = Service:new{
+    name = "lc-ping",
+    SIGNAL_PING = 0,
+    SIGNAL_PONG = 1,
+    SIGNAL_ERROR = -255,
+}
+
+function Ping:request(node, receiver, times)
+    times = times or 1
+    assert(times > 0, "sending less than one ping is impossible.")
+    if not node:has_service(self.name) then
+        node:install_service(self)
+    end
+    local cache = node:get_cache(self)    
+    
+    cache.receiver = receiver or BROADCAST
+    if cache.receiver == BROADCAST and times ~= 1 then
+        print("Pinging more than once on broadcast channel is not allowed, will send only one ping.")
+        cache.requests = 1
+    else
+        cache.requests = times
+    end
+    self:_ping(node, cache)
+end
+
+function Ping:_ping(node, cache, receiver)
+    cache.requests = cache.requests - 1
+    cache.timestamp = os.time()
+    receiver = receiver or cache.receiver or BROADCAST
+    _send(receiver, self, self.SIGNAL_PING)
+end
+
+function Ping:receive(node, msg, cache)
+    if msg.data == Ping.SIGNAL_PING and cache.host then
+        print(string.format("ping from %d", msg.sender))
+        _reply(msg, self, Ping.SIGNAL_PONG)
+    elseif msg.data == Ping.SIGNAL_PONG and cache.requests then
+        local delta = os.time() - cache.timestamp
+        print(string.format("pong from %d in %d ticks", msg.sender, delta))
+        if cache.requests > 0 then
+            self:_ping(node, cache, msg.sender)
+        else
+            cache.requests = nil
+            cache.receiver = nil
+            cache.timestamp = nil
+        end
+    elseif msg.data == self.SIGNAL_ERROR then
+        print(string.format("%d sent error signal.", msg.sender))
+    elseif cache.send_error_signal then
+        _reply(msg, self, self.SIGNAL_ERROR)
+    end
+end
+
+
+Node = Object:new{
+    __objname = "rntp.Node",
+}
+
+function Node:create(modem_side, name, ...)
+    local node = Node:new {
+        name = name or os.getComputerLabel(),
+        modem_side = modem_side, 
+        services = {},
+        caches = {},
+    }
+    local services = {...}    
+    for _,v in ipairs(services) do
+        node:install_service(v[1], v[2])
+    end
+    return node
+end
+
+function Node:install_service(service, data)
+    if self:has_service(service.name) and self.services[service.name] ~= service then
+        self:remove_service(service.name)
+    end    
+    if data then
+        assert(type(data) == "table")
+    else
+        data = {}
+    end    
+    self.services[service.name] = service
+    self.caches[service.name] = data
+    service:setup(self, data)
+end
+
+function Node:remove_service(service)
+    service:teardown(self, self.caches[service.name])
+    services[service.name] = nil
+    self.caches[service.name] = nil
+end
+
+function Node:has_service(name)
+    return self.services[name] ~= nil
+end
+
+function Node:get_service(name)
+    return self.services[name]
+end
+
+function Node:init_data(service)
+    self.caches[service.name] = {}
+end
+
+function Node:get_cache(service)
+    return self.caches[service.name]
+end
+
+function Node:open()
+    rednet.open(self.modem_side)
+end
+
+function Node:close()
+    rednet.close(self.modem_side)
+end
+
+function Node:message(receiver, service, data)
+    _send(receiver, service, data)
+end
+
+function Node:onMessage(sender, msg)
+    local packet = _unpack(sender, msg)
+    local service = self:get_service(packet.service_name)
+--    print("Received: ")
+    --printt(packet)
+    if service then
+        service:receive(self, packet, self:get_cache(service))
+    else
+        print("Discarded.")
+    end
+end
+
+
+
+

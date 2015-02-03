@@ -1,0 +1,93 @@
+os.loadAPI("lib/rntp")
+os.loadAPI("lib/util")
+
+
+
+
+local SIG = {
+    BAD_REQ = 1,
+    NO_PERMISSION = 2,
+    
+    GREET_REQ  = 10,
+    GREET_OK   = 11,
+    QUIT_REQ = 20,
+    QUIT_OK  = 21,
+   
+    LIST_REQ  = 100,
+    LIST_OK   = 101,    
+    CHDIR_REQ  = 200,
+    CHDIR_OK   = 201,    
+    FETCH_REQ  = 300,
+    FETCH_OK   = 301,    
+    PUSH_REQ  = 400,
+    PUSH_OK   = 401,
+}
+
+local NO_CON = nil,
+local CON_REQ = 1,
+local CON_EST = 2,
+
+
+local signal_handlers = {
+    SIG.GREET_REQ = function(rfs, node, msg, cache)
+        cache.connections[msg.sender] = msg.signal
+        rntp._reply(msg, rfs, {signal = SIG.GREET_OK})
+    end,
+    
+    SIG.GREET_OK = function(rfs, node, msg, cache)
+        if cache.connections[msg.sender] == SIG.GREET_REQ then
+            cache.connections[msg.sender] = msg.signal
+        else
+            print("Bad request:")
+            printt(msg, 1, 2)
+            rntp._reply(msg, rfs, {signal = SIG.BAD_REQ})
+        end
+    end,
+    
+    SIG.QUIT_REQ = function(rfs, node, msg, cache)
+        if cache.connections[msg.sender] then
+            cache.connections[msg.sender] = nil
+            rntp._reply(msg, rfs, {signal = SIG.QUIT_OK})
+        else
+            print("Bad request:")
+            printt(msg, 1, 2)
+            rntp._reply(msg, rfs, {signal = SIG.BAD_REQ})
+        end
+    end
+    
+    SIG.QUIT_OK = function(rfs, node, msg, cache)
+        -- nothing left to do
+    end
+    
+    SIG.LIST_REQ = function(rfs, node, msg, cache)
+        if cache.connections[msg.sender] then
+            if cache.serve_files then
+                
+            else
+                rntp._reply(msg, rfs, {signal = SIG.NO_PERMISSION})
+                
+    end
+}
+
+
+RemoteFileSystem = Service:new {
+    name = "lc-rfs",
+    signals = {},
+}
+
+
+
+function RemoteFileSystem:setup(node, cache)
+    cache.connections = {}
+end
+
+function RemoteFileSystem:receive(node, msg, cache)
+    if msg.signal == SIG.GREET_REQ then
+
+    elseif msg.signal == 
+            
+            
+end
+
+
+

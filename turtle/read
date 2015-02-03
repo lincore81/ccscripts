@@ -1,0 +1,6 @@
+os.loadAPI("turtle/turtl")
+for k, v in pairs(turtl) do
+	if not _G[k] then _G[k] = v end
+end
+z = sleep
+turtl.reader()

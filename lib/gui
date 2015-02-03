@@ -1,0 +1,198 @@
+os.loadAPI("/lib/prototype")
+
+-- Rect prototype --
+Rect = Object:new{
+    __objname = "gui.Rect",
+    x = 0,
+    y = 0,
+    width = 0,
+    height = 0,
+    __getters = {"x", "y", "width", "height"},
+    __setters = {"x", "y", "width", "height"},
+    __mt = {
+        __tostring = function(self)
+            return string.format("%s(x=%d, y=%d, width=%d, height=%d)",
+                self.__objname, self.x, self.y, self.width, self.height)
+        end
+    }
+}
+
+
+function Rect:abs(x1, y1, x2, y2)
+  return Rect(x1, y1, x2 - x1 + 1, y2 - y1 + 1)
+end
+
+function Rect:create(x, y, width, height)
+  local new = self:new{x=x, y=y, width=width, height=height}
+  new.__mt.__len = function(self) return 4 end
+  return new
+end
+
+function Rect:set(x, y, width, height)
+  self.x = x
+  self.y = y
+  self.width = width
+  self.height = height
+end
+
+function Rect:getX2()
+  return self.x + self.width - 1
+end
+
+function Rect:getY2()
+  return self.y + self.height - 1
+end
+
+function Rect:getTopLeft()
+  return self.x, self.y
+end
+
+function Rect:getBottomRight()
+  return self:getX2(), self:getY2()
+end
+
+function Rect:getTopRight()
+  return self:getX2(), self.y
+end
+
+function Rect:getBottomLeft()
+  return self.x, self:getY2()
+end
+
+function Rect:containsPoint(x, y)
+  return x >= self.x and x < self.x + self.width and
+         y >= self.y and y < self.y + self.height
+end
+
+function Rect.parse(rect, width, height)
+    result = Rect:create(0, 0, 0, 0)
+    for i = 1, 4 do
+        local v = rect[i]
+        local len = (i % 2 == 0) and height or width
+        if v < 0 then
+            result[i] = len - v
+        elseif v < 1 and v > 0 then
+            local x = v * len
+            local roundUp = (x % 1) >= 0.5            
+            x = math.floor(x)
+            if roundUp then
+                x = x + 1
+            end
+            result[i] = x
+        end
+    end
+    return result
+end
+
+
+-- Button prototype --
+
+Button = Object:new{
+  __objname = "gui.Button",
+  buttons = {},
+  enabledColor   = colors.green,
+  disabledColor  = colors.gray,
+  textColor      = colors.yellow,
+  highlightColor = colors.white,
+  rect           = Rect:create(1, 1, 10, 1),
+  horizBorder    = 0,
+  label          = "Button",
+  value          = nil,
+  callback       = nil,
+  enabled        = true,
+}
+
+
+function Button:handleTouch(x, y)
+  for _, button in ipairs(Button.buttons) do
+    if button.rect:containsPoint(x, y) and button.enabled then
+      if type(button.callback) == "function" then
+        button.callback(button, x, y)
+      end
+    end
+  end
+end
+
+function Button:drawAll(monitor)
+  for _, button in ipairs(Button.buttons) do
+    button:draw(monitor)
+  end
+end
+
+function Button:create(...)
+  button = Button:new(...)
+  button:register()
+  return button
+end    
+
+function Button:register()
+  table.insert(Button.buttons, self)
+end
+
+function Button:getColors()
+  local bg
+  if self.enabled and self.callback then    
+    bg = self.enabledColor
+  else
+    bg = self.disabledColor
+  end
+  local fg = self.textColor
+  return fg, bg
+end
+
+function Button:checkDimensions(monitor)
+  local monWidth, monHeight = monitor.getSize()
+  assert(self.rect.x > 0 and self.rect.x <= monWidth, "Button '" .. self.label ..
+          "': x=" .. self.rect.x .. " is out of bounds.")
+  assert(self.rect.y > 0 and self.rect.y <= monHeight, "Button '" .. self.label ..
+          "': y=" .. self.rect.y .. " is out of bounds.")
+  assert(self.rect.width > 0, "Button '" .. self.label ..
+          "': width=" .. self.rect.width .. " is too small.")
+  assert(self.rect.height > 0, "Button '" .. self.label ..
+          "': height=" .. self.rect.height .. " is too small.")
+end
+
+function Button:draw(monitor)
+  --self:checkDimensions(monitor)
+  local fg, bg = self:getColors()
+    monitor.setBackgroundColor(bg)
+    monitor.setTextColor(fg)
+  local text = util.centerstr(self.label, self.rect.width - self.horizBorder*2)
+  local textRow = ((self.rect.height - 1) / 2) + self.rect.y
+  for i = self.rect.y, self.rect:getY2() do
+    monitor.setCursorPos(self.rect.x, i)
+    if i == textRow then
+      monitor.write(string.rep(" ", self.horizBorder) .. text .. string.rep(" ", self.horizBorder))
+    else
+      monitor.write(string.rep(" ", self.rect.width))
+    end
+  end
+end
+
+
+function grid_layout(area, widget_size, horiz_spacing, vert_spacing)
+    widget_size = Rect.parse(widget_size, area.width, area.height)
+    local w, h = monitor.getSize()
+    area = Rect.parse(area, w, h)
+    horiz_spacing = horiz_spacing or 1
+    vert_spacing = vert_spacing or horiz_spacing
+    local rows = math.floor((area.height + vert_spacing) / (widget_size.height + vert_spacing))
+    local cols = math.floor((area.width + horiz_spacing) / (widget_size.width + horiz_spacing))
+    if rows < 1 or cols < 1 then
+        error("Not enough space on screen to lay out the widgets.", 2)
+    end
+    local next = 0
+    local top = rows * cols - 1
+    print("rows: ", rows, " cols: ", cols, " top: ", top)
+    return function()
+        if next > top then return end
+        local x, y = 0, 0
+        local col = next % cols
+        local row = math.floor(next / cols)
+        print("next: ", next, " col: ", col, " row: ", row)
+        x = (horiz_spacing + widget_size.width) * col + area.x
+        y = (vert_spacing + widget_size.height) * row + area.y
+        next = next + 1
+        return Rect(x, y, widget_size.width, widget_size.height)
+    end
+end

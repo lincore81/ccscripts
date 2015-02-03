@@ -1,0 +1,13 @@
+USAGE = [[
+Move the turtle forward.
+Usage:
+	fd (blocks force tries slot)
+]]
+
+args = {...}
+if #args > 0 and (args[1] == "-h" or args[1] == "help" or args[1] == "-?") then
+	print(USAGE)
+else
+	os.loadAPI("/turtle/turtl")
+	turtl.fd(unpack(args))
+end

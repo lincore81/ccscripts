@@ -1,0 +1,31 @@
+
+function touch(filename)
+	handle = fs.open(filename, "ab")
+	if not handle then
+		error("No such file: " .. filename)
+	end
+	handle.close()
+end
+
+
+function isAbsolutePath(path)
+	return string.sub(path, 1, 1) == "/"
+end
+
+function getAbsolutePath(path)
+	if isAbsolutePath(path) then
+		return path
+	else
+		return "/" .. fs.combine(shell.dir(), path)
+	end
+end
+
+
+args = {...}
+if #args > 0 then
+	for i = 1, #args, 1 do
+		touch(getAbsolutePath(args[i]))
+	end
+else
+	print("Usage: touch file1 [file2 ... fileN]")
+end

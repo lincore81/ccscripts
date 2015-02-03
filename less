@@ -1,0 +1,161 @@
+-- less
+
+KEY_Q		= 16
+
+KEY_W 		= 17
+KEY_A		= 30
+KEY_S		= 31
+KEY_D		= 32
+
+KEY_UP 		= 200
+KEFT_LEFT 	= 203
+KEY_RIGHT 	= 205
+KEY_DOWN 	= 208
+
+KEY_R		= 19
+KEY_F		= 33
+
+KEY_HOME    = 199
+KEY_END		= 207
+
+function readLines(filename)
+	local file = fs.open(filename, "r")
+	if not file then
+		error("Could not open file: " .. filename)
+	end
+	local lines = {}
+	while true do
+		line = file.readLine()
+		if line then
+			table.insert(lines, line)
+		else
+			break
+		end
+	end
+	file.close()
+	return lines
+end
+
+function cutLines(lines, width)
+	local rows = {}
+	local lineNumbers = {}
+	local line
+	for i = 1, #lines do
+		line = lines[i]
+		while string.len(line) > width do
+			local row = string.sub(line, 1, width)
+			table.insert(rows, row)
+			table.insert(lineNumbers, i)
+			line = string.sub(line, width + 1)
+		end
+		table.insert(rows, line)
+		table.insert(lineNumbers, i)
+	end
+	return rows, lineNumbers
+end
+
+
+function printText(lines, offset, length)
+	for i = 1, length - 1 do
+		term.setCursorPos(1, i)
+		term.write(lines[offset+i])
+	end
+end
+
+function printStatusbar(filename, text, view)
+	local line1 = text.lineNumbers[view.rowOffset + 1]
+	local line2Index = view.rows - 1 + (view.rowOffset)
+	if (line2Index > #text.lineNumbers) then
+		line2Index = #text.lineNumbers
+	end
+	local line2 = text.lineNumbers[line2Index]
+	local progress
+	if text.lineCount > 0 then
+		progress = line2 / text.lineCount * 100
+	else
+		progress = 100
+	end
+	local statusbar = string.format("\"%s\" lines %d-%d/%d (%d%%)  ",
+			filename, line1, line2, text.lineCount, progress)
+	term.setCursorPos(1, view.rows)
+	term.write(statusbar)
+end
+
+function printScreen(filename, text, view)
+	term.clear()
+	printText(text.lines, view.rowOffset, view.rows)
+	printStatusbar(filename, text, view)
+end
+
+function scroll(amount, text, view)
+	if amount == "home" then
+		view.rowOffset = 1
+		return
+	elseif amount == "end" then
+		view.rowOffset = #text.lines - view.rows + 1
+		return
+	else
+		local newOffset = view.rowOffset + amount
+		newOffset = math.min(newOffset, #text.lines - view.rows + 1)
+		newOffset = math.max(newOffset, 0)
+		view.rowOffset = newOffset
+	end
+end
+
+
+function handleEvents(filename, text, view)
+	event, key = os.pullEvent("key")
+	if key == KEY_UP or key == KEY_W then
+		scroll(-1, text, view)
+		printScreen(filename, text, view)
+	elseif key == KEY_DOWN or key == KEY_S then
+		scroll(1, text, view)
+		printScreen(filename, text, view)
+	elseif key == KEY_A then
+		scroll(-view.rows + 1, text, view)
+		printScreen(filename, text, view)
+	elseif key == KEY_D then
+		scroll(view.rows - 1, text, view)
+		printScreen(filename, text, view)
+	elseif key == KEY_HOME then
+		scroll("home", text, view)
+		printScreen(filename, text, view)
+	elseif key == KEY_END then
+		scroll("end", text, view)
+		printScreen(filename, text, view)
+	elseif key == KEY_Q then
+		return true -- QUIT
+	end
+end
+
+function main(args)
+	if #args ~= 1 then
+		error("Usage: less <textfile>")
+	end
+	local filename = args[1]
+	local lines = readLines(filename)
+	local width, height = term.getSize()
+	local rows, lineNumbers = cutLines(lines, term.getSize())
+
+	local text = {
+		lineCount = #lines,
+		lines = rows,
+		lineNumbers = lineNumbers
+	}
+	local view = {
+		columns = width,
+		rows 	= height,
+		rowOffset = 0
+	}
+
+	printScreen(filename, text, view)
+	local quit = false
+	repeat
+		quit = handleEvents(filename, text, view)
+	until quit
+	term.clear()
+	term.setCursorPos(1, 1)
+	os.pullEvent() -- get rid of char event for typing 'q'
+end
+
+main({...})

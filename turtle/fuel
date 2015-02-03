@@ -1,0 +1,13 @@
+USAGE = [[
+Check the amount of fuel left.
+Usage:
+	fuel
+]]
+
+
+args = {...}
+if #args > 0 and (args[1] == "h" or args[1] == "help" or args[1] == "?") then
+	print(USAGE)
+else
+	print(turtle.getFuelLevel() .. " blocks")
+end

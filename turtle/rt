@@ -1,0 +1,14 @@
+USAGE = [[
+Turn right.
+Usage:
+	rt (times)
+]]
+
+
+args = {...}
+if #args > 0 and (args[1] == "h" or args[1] == "help" or args[1] == "?") then
+	print(USAGE)
+else
+	os.loadAPI("/turtle/turtl")
+	turtl.rt(unpack(args))
+end

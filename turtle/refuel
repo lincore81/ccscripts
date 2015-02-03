@@ -1,0 +1,27 @@
+USAGE = [[
+Refuel the turtle.
+Usage:
+	refuel (QUANTITY) (SLOT)
+]]
+
+
+args = {...}
+if #args > 0 and (args[1] == "h" or args[1] == "help" or args[1] == "?") then
+	print(USAGE)
+else
+	if #args >= 2 then
+		turtle.select(args[2])
+	else
+		turtle.select(1)
+	end
+
+	fuelBefore = turtle.getFuelLevel()
+	if #args >= 1 then
+		turtle.refuel(args[1])
+	else
+		turtle.refuel(1)
+	end
+	fuelAfter = turtle.getFuelLevel()
+	fuelDiff = fuelAfter - fuelBefore
+	print(string.format("Fuel: %d blocks (+%d)", fuelAfter, fuelDiff))
+end

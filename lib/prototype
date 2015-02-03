@@ -1,0 +1,66 @@
+--[[
+prototype
+Allows for simple prototype based object orientation (think ECMAScript).
+
+]]
+local function new(prototype, obj)
+  --print("Prototype: " .. prototype.__objname)
+  local obj = obj or {}
+  obj.__prototype = prototype
+  obj.__mt = obj.__mt or {}
+  setmetatable(obj, obj.__mt)
+    
+  obj.__getters = obj.__getters or {}
+  obj.__setters = obj.__setters or {}
+  if prototype then
+    setmetatable(obj.__getters, {__index = prototype.__getters})
+    setmetatable(obj.__setters, {__index = prototype.__setters})
+    -- flatcopy prototype's metatable:
+    for k, v in pairs(prototype.__mt) do
+        if not obj.__mt[k] then
+            obj.__mt[k] = v
+        end
+    end
+  end  
+  obj.__mt.__index = function(self, key)
+    local getter = rawget(self, "__getters")[key]
+        if getter then
+            if type(getter) == "function" then
+                return getter(self, key)
+            elseif type(getter) == "number" or type(getter) == "string" then
+                return rawget(self, getter)
+            else
+                error("Not a valid getter: " .. tostring(getter))
+            end
+        elseif rawget(self, "__prototype") then
+            return rawget(self, "__prototype")[key]
+        else
+            return nil
+        end
+    end  
+  obj.__mt.__newindex = function(self, key, value)
+    local setter = self.__setters[key]
+    if setter then
+        if type(setter) == "function" then
+            setter(self, key, value)
+            return
+        elseif type(setter) == "string" or type(setter) == "number" then
+            rawset(self, setter, value)
+        else
+            error("Not a valid setter: " .. tostring(setter))
+        end
+    else
+        rawset(self, key, value)
+    end
+  end
+  obj.__mt.__call = function(...) 
+    return obj.create(...) 
+  end  
+  obj.__mt.__tostring = obj.__mt.__tostring or function(self) 
+    return self.__objname or "unnamed object"
+  end
+  return obj
+end
+
+Object = new(nil, {__objname = "Object", new = new, __objident="lincproto"})
+_G["Object"] = Object
