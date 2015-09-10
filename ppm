@@ -1,0 +1,164 @@
+--*-lua-*-
+-- REPOSITORY
+   
+function setup_arc_package(name, data)
+  shell.run("arc", "x", data.dest)
+  fs.delete(data.dest)
+  return true
+end
+
+packages = {
+  excav = {url="qeSmMDFM",},
+  arc   = {url="VdJMpxkS",},
+  utils = {
+    url="KuYdxzWZ",
+    dest="/utils.arc",
+    dependencies={"arc"},
+    setup=setup_arc_package,
+  },
+  turtle = {
+    url="XygDHsEi",
+    dest="/turtle.arc",
+    dependencies={"arc"},
+    setup=setup_arc_package,
+  },
+  libs = {
+    url="92pX1nnu",
+    dest="/lib.arc",
+    dependencies={"arc"},
+    setup=setup_arc_package,
+  },
+}
+
+
+
+-- PROGRAM
+installed = {}
+
+
+function pastebin_load(url)
+    url = "http://pastebin.com/raw.php?i="..url
+    local resp = http.get(url)
+    local code = resp.getResponseCode()
+    local ans
+    local ok
+    if code >= 200 and code < 300 then
+        ans = resp.readAll()
+        ok = true
+    else
+        ans = "Response: " .. tostring(code)
+        ok = false
+    end
+    resp.close()
+    return ok, ans
+end
+
+function save_pkg(pkg, dest)
+    local h = fs.open(dest, "w")
+    h.write(pkg)
+    h.close()
+end
+
+
+function trim(s)
+  return s:match "^%s*(.-)%s*$"
+end
+
+function list(search_str)
+    for k,_ in pairs(packages) do
+        if search_str == nil or string.match(k, search_str) then
+            print(k)
+        end
+    end
+end
+
+function resolve_dependencies(deps)
+    if deps == nil then return {} end
+    local not_installed = {}
+    for i,v in ipairs(deps) do
+        if not installed[v] then
+            table.insert(not_installed, v)
+        end
+    end
+    return not_installed
+end
+
+function install_package(pkg_name)
+    if not packages[pkg_name] then
+        error(tostring(pkg_name) .. " does not exist.")
+    end
+    local data = packages[pkg_name]
+    local todo = resolve_dependencies(data.dependencies)
+    for _, dep in ipairs(todo) do
+        install_package(dep)
+    end
+
+    term.write("Getting " .. pkg_name .. "... ")
+    local ok, pkg = pastebin_load(data.url)
+    assert(ok, "Unable to get package (" .. tostring(pkg) .. ")")
+    local dest = data.dest or ("/" .. pkg_name)
+    save_pkg(pkg, dest)
+    if type(data.setup) == "function" then
+        data.setup(pkg_name, data)
+    end
+    term.write("ok.")
+    print()
+    installed[pkg_name] = true
+end
+
+function list_installed()
+    for k,_ in pairs(installed) do
+        print(k)
+    end
+end
+
+function get(...)
+    local pkg_names = {...}
+    if pkg_names == nil then
+        error("Missing arguments: package names")
+    end
+    for _,v in ipairs(pkg_names) do install_package(v) end
+    write_installed_pkgs()
+
+end
+
+
+function read_installed_pkgs()
+    if not fs.exists("/etc/packages") then return {} end
+    local h = fs.open("/etc/packages", "r")
+    local contents = h.readAll()
+    h.close()
+    local ans = textutils.unserialize(contents) or {}
+    return ans
+end
+
+function write_installed_pkgs()
+    fs.makeDir("/etc")
+    local data = textutils.serialize(installed)
+    local h = fs.open("/etc/packages", "w")
+    h.write(data)
+    h.close()
+end
+
+
+function main(args)
+    assert(#args > 0, "Missing arguments: list (pattern) | get package")
+    local command = trim(args[1])
+
+    local arguments = {
+        get = get,
+        g = get,
+        list = list,
+        l = list,
+        installed = list_installed,
+        i = list_installed,
+    }
+
+    local func = arguments[command]
+    assert(func, "Unknown command: " .. args[1] .. ", try list or get")
+    table.remove(args, 1)
+    installed = read_installed_pkgs()
+    func(unpack(args))
+end
+
+main{...}

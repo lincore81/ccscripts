@@ -1,0 +1,43 @@
+-- wget url filename
+ 
+function wget(url)
+    local resp = http.get(url)
+    if not resp then
+        return false, "", "Could not reach host."
+    end
+    local code = resp.getResponseCode()
+    local ok = code >= 200 and code < 300
+    local ans = resp.readAll()
+    resp.close()
+    return ok, ans, code
+end
+
+function save_file(content, filename)
+    local h = fs.open(filename, "w")
+    h.write(content)
+    h.close()
+end
+
+function main(args)
+    if #args < 1 or #args > 2 then
+        print("Syntax:")
+        print("  wget [url] ([file])")
+        return
+    end
+
+    local url = args[1]
+    local dest = args[2]
+    local ok, content, resp_code = wget(url)
+    if not ok then
+        print("Request failed: " .. tostring(resp_code))
+        return
+    end
+    if dest then
+        save_file(content, dest)
+    else
+        term.write(content)
+    end
+    print(tostring(resp_code) .. " ok.")
+end
+
+main{...}

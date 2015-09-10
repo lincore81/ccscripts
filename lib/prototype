@@ -1,8 +1,3 @@
---[[
-prototype
-Allows for simple prototype based object orientation (think ECMAScript).
-
-]]
 local function new(prototype, obj)
   --print("Prototype: " .. prototype.__objname)
   local obj = obj or {}
@@ -59,8 +54,9 @@ local function new(prototype, obj)
   obj.__mt.__tostring = obj.__mt.__tostring or function(self) 
     return self.__objname or "unnamed object"
   end
+  
   return obj
 end
 
-Object = new(nil, {__objname = "Object", new = new, __objident="lincproto"})
+Object = new(nil, {__objname = "Object", new = new})
 _G["Object"] = Object

@@ -50,8 +50,8 @@ function dump(tabl, file)
 end
 
 
-function dumps(value)
-    return represent(value, 1)
+function dumps(tabl)
+    return "_pickled_data = {\n" .. representTable(tabl, 1) .. "\n}"
 end
 
 function loadsafe(filename, defaults)
@@ -81,7 +81,7 @@ function load(file)
 end
 
 function loads(str)
-    local f = loadstring("_pickled_data = " .. str)
+    local f = loadstring(str)
     f()
     return _pickled_data
 end

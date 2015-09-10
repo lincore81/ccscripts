@@ -3,6 +3,23 @@ DEFAULT_LINE_TERM = "\n"
 more_argument_separator = DEFAULT_ARG_SEP
 more_line_terminator = DEFAULT_LINE_TERM
 
+function sprintt(t, recursion, indent)
+    local buffer = {}
+    recursion = recursion or 0
+    indent = indent or 0
+    for k, v in pairs(t) do
+        if recursion > 0 and type(v) == "table" then
+            table.insert(buffer, string.rep(" ", indent) .. tostring(k) .. ":")
+            table.insert(buffer, sprintt(v, recursion - 1, indent + 2, buffer))
+        else
+            table.insert(buffer, string.rep(" ", indent) .. tostring(k) .. " = " .. tostring(v))
+        end
+    end
+    return table.concat(buffer, "\n")
+end
+if not _G.sprintt then
+  _G.sprintt = sprintt
+end
 
 function printt(t, recursion, indent)
     recursion = recursion or 0
@@ -16,9 +33,18 @@ function printt(t, recursion, indent)
         end
     end
 end
-_G["printt"] = printt
+if not _G.printt then
+  _G.printt = printt
+end
 
 
+function getfile(filename)
+  local h = fs.open(filename, "r")
+  if not h then return nil end
+  local ans = h.readAll()
+  h.close()
+  return ans
+end
 
 function centerstr(str, width)
   if #str < width then

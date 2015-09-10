@@ -1,0 +1,260 @@
+-- -*-lua-*-
+-- unjson - a json parser for computercraft
+
+-- written by lincore, 2015
+-- released into the public domain
+
+--  > os.loadAPI("unjson")
+--  > some_json = '{"foo": "bar", "answer": 42}'
+--  > some_table = unjson.get(some_json)
+--  > print(some_table.answer)
+--  42
+
+
+local parse_document,
+      parse_object,
+      parse_array,
+      parse_kv,
+      parse_value,
+      parse_string,
+      parse_number,
+      json_err,
+      skip_whitespace,
+      Stream
+
+function get(json)
+    local ok, ans = pcall(parse_document, json)
+    if ok then
+      return ans
+    else
+      error(ans, 2)
+    end
+end
+
+function json_err(stream, msg, index)
+    index = index or stream.position
+    local start = math.max(0, index - 20)
+    stream.position = start
+    local str = stream:read(40) .. "\n" .. string.rep(' ', index - start - 1) .. "^"  
+    msg = msg or "Malformed json" 
+    error(msg .. "\n" .. str, 2)
+end
+
+function skip_whitespace(stream)
+    stream:skip_until("[^%s]", false, true)
+end
+
+
+function parse_document(doc)
+    local stream = Stream(doc)
+    skip_whitespace(stream)
+    local ch = stream:read()
+    local ans
+    if ch == "{" then
+      ans = parse_object(stream)
+    elseif ch == "[" then
+      ans = parse_array(stream)
+    else
+      json_err(stream, "(document) expecting '{' or '['", 1)
+    end
+    if not stream:ended() then
+        json_err(stream, "(document) expecting EOF")
+    end
+    return ans
+end
+
+
+function parse_object(stream)
+  local ans = {}  
+  skip_whitespace(stream)
+  if stream:peek() == "}" then
+    stream:skip()
+    return ans
+  end
+  while not stream:ended() do
+    skip_whitespace(stream)
+    local ch = stream:read()
+    if ch == "\"" then
+        local k, v = parse_kv(stream)
+      ans[k] = v
+    else
+      json_err(stream, "(object) expecting key or '}'")
+    end
+    skip_whitespace(stream)
+    ch = stream:read()
+    if ch == "}" then
+      return ans
+    elseif ch ~= "," then
+      json_err(stream, "(object) expecting ',' or '}'")
+    end
+  end
+  json_err(stream, "(object) expecting '}', not EOF")
+end
+
+function parse_array(stream)
+  local ans = {}
+  skip_whitespace(stream)
+  if stream:peek() == "]" then
+    stream:skip()
+    return ans
+  end  
+  while not stream:ended() do
+    skip_whitespace(stream)
+    local value = parse_value(stream)
+    table.insert(ans, value)
+    skip_whitespace(stream)
+    local ch = stream:read()
+    if ch == ']' then
+      return ans
+    elseif ch ~= ',' then
+      json_err(stream, nil, stream.position-1)
+    end
+  end
+  json_err(stream, "(array) expecting ']', not EOF")
+end
+
+function parse_kv(stream)
+  local key = stream:read_until('([^\\])"')
+  skip_whitespace(stream)
+  if not stream:read() == ":" then
+    stream.position = stream.position - 1
+    json_error(stream, "kv-pair) expecting ':'")
+  end
+  skip_whitespace(stream)
+  if not key then json_err(stream, "(kv-pair) expecting key") end
+  local value = parse_value(stream)
+  return key, value
+end
+
+
+function parse_value(stream)
+  local first = stream:peek()
+  if first == "{" then
+    stream:skip()
+    value = parse_object(stream)
+  elseif first == "[" then
+    stream:skip()
+    value = parse_array(stream)
+  elseif first == "\"" then
+    stream:skip()
+    value = parse_string(stream)
+  elseif first:match("[0-9-]") then
+    value = parse_number(stream)
+  else
+    if stream:peek(4) == "true" then
+      value = true
+      stream:skip(4)
+    elseif stream:peek(5) == "false" then
+      value = false
+      stream:skip(5)
+    elseif stream:peek(4) == "null" then
+      value = nil
+      stream:skip(4)
+    else
+      json_err(stream, "(value) Illegal value")
+    end
+  end
+  return value
+end
+
+function parse_number(stream)
+  local i = stream.position
+  local n = stream:read_until("[\]\},%s]", false, true)
+  n = tonumber(n)
+  if not n then json_err(stream, "(number) Not a number", i) end
+  return n
+end
+
+local special_chars = {
+  ['\\n'] = '\n',
+  ['\\t'] = '\t',
+  ['\\"'] = '"',
+  ['\\\\'] = '\\',
+
+  ['\\b'] = '',   -- backspace
+  ['\\f'] = '',   -- form feed
+  ['\\r'] = '',   -- carriage return
+}
+
+function parse_string(stream)
+  if stream:peek() == '"' then
+      stream:skip()
+      return ""
+  end
+  local str = stream:read_until("([^\\])\"")
+  if not str then json_err(stream, "(string) expecting closing '\"', not EOF") end
+  -- convert escape sequences:
+  for k,v in pairs(special_chars) do
+      str = str:gsub(k, v)
+  end
+  return str
+end
+
+
+Stream = {}
+function Stream:new(str)
+  assert(type(str) == "string", "new: argument is not a string, but is a " .. type(str))
+  local inst = {}
+  inst.str = str
+  setmetatable(inst, {__index=self})
+  inst.position = 1
+  return inst
+end
+setmetatable(Stream, {__call=Stream.new})
+
+function Stream:remaining()
+  return math.max(1 + #self.str - self.position, 0)
+end
+
+function Stream:peek(n)
+  n = math.min(n or 1, self:remaining())
+  if n == 0 then return nil, 0 end
+  local j = self.position + n - 1
+  return self.str:sub(self.position, j), n
+end
+
+function Stream:read(n)
+  n = math.min(n or 1, self:remaining())
+  if n == 0 then return nil, 0 end
+  local i, j = self.position, self.position + n - 1
+  self.position = j+1
+  return self.str:sub(i, j), n
+end
+
+function Stream:skip(n)
+  n = math.min(n or 1, self:remaining())
+  self.position = self.position + n
+  return n
+end
+
+function Stream:read_until(pattern, plain, keep_delim)
+  local p = self.position
+  local a, b, capt = self.str:find(pattern, self.position, plain)
+  if not a then return nil end
+  local ans = self.str:sub(self.position, a - 1)
+  if capt then
+      ans = ans .. capt
+  end
+  if keep_delim then
+      self.position = a
+  else
+      self.position = b + 1
+  end
+  return ans, self.position - p
+end
+
+function Stream:skip_until(pattern, plain, keep_delim)
+  local p = self.position
+  local a, b = self.str:find(pattern, self.position, plain)
+  if not a then return nil end
+  if keep_delim then
+    self.position = a
+  else
+    self.position = b + 1
+  end
+  return self.position - p
+end
+
+function Stream:ended()
+    return self.position > #self.str
+end

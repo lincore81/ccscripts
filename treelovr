@@ -1,0 +1,304 @@
+-- LINCORP INDUSTRIES presents
+-- treelovr 3000
+-- v1 2015/02
+--
+-- Loves trees, but not enough to not cut them down.
+--
+-- written by lincore,
+-- do whatever you want with this script
+--
+--
+
+--[[ Setup:
+ Create a looping track by using the signal blocks listed below. 
+ Depending on the type, signal blocks can either be in front, above or
+ below the turtle.
+ Put the turtle somewhere on the track. It must be one block
+ above the ground (so it can place saplings downwards).
+ Put an undamaged diamond axe in the bottom right slot (16).
+ Put saplings in the top left slot (or have a lime resupply station
+ before the first sapling should be planted)
+ Make sure the turtle is fueled adequately.
+ Make sure the turtle is facing the right direction.
+ rename the program to startup and hold ctrl-r.
+
+ SIGNAL:      ACTION:
+ none         move forward
+ rs torch     move forward and then plant sapling or chop down tree (place below)
+ green wool   turn starboard (place in front)
+ red          turn port (place in front)
+ brown        dump wood in chest below (place above)
+ lime         resupply saplings from chest below (place above)
+ black        resupply fuel from chest below if below MIN_FUEL_LEVEL (place above)
+ white        wait (see stay_home for details) (don't place in front)
+]]
+
+local MIN_FUEL_LEVEL = 512
+local MIN_SAPLINGS = 16
+
+local ACTION_MOVE_FORWARD = "go forward"
+local ACTION_TURN_LEFT    = "turn left"
+local ACTION_TURN_RIGHT   = "turn right"
+local ACTION_PLANT_SAPLING= "plant sapling"
+local ACTION_BEGIN_CHOP_TREE = "equip axe"
+local ACTION_CHOP_TREE    = "chop down tree"
+local ACTION_MOVE_DOWN    = "descend"
+local ACTION_GET_SAPLINGS = "resupply"
+local ACTION_REFUEL       = "refueling"
+local ACTION_DUMP_WOOD    = "dump wood"
+local ACTION_HOME         = "free time"
+
+local SIGNAL_BLOCK = "minecraft:wool"
+
+local SIGNALS = {
+    [14] = ACTION_TURN_LEFT,     -- red
+    [13] = ACTION_TURN_RIGHT,    -- green
+    [15] = ACTION_REFUEL_STATION,-- black
+    [ 5] = ACTION_GET_SAPLINGS,  -- lime
+    [12] = ACTION_DUMP_WOOD,     -- brown
+    [ 0] = ACTION_HOME,          -- white
+}
+
+local axe_equipped = false
+
+
+
+-- LOGGING --
+
+function getTimeStamp()
+    local timeString = textutils.formatTime(os.time(), true)
+        if #timeString == 4 then timeString = "0" .. timeString end
+    return os.day() .. "#" .. timeString
+end
+ 
+function log(msg)    
+    print(getTimeStamp() .. ": " .. msg) 
+end
+
+
+-- ACTIONS --
+
+function plant_sapling()
+    turtle.select(1)
+    turtle.forward()
+    turtle.placeDown()
+end
+
+function stay_home()
+    log("Home, sweet home!")
+    rs.setOutput("right", true)
+    sleep(0.1)
+    rs.setOutput("right", false)
+    sleep(0.1)
+    os.pullEvent("redstone")
+    turtle.forward()
+end
+
+function begin_chop_tree()
+    wield_axe()
+    while not turtle.dig() do
+        sleep(1)
+    end
+    turtle.forward()
+    while not turtle.digDown() do
+        sleep(1)
+    end
+    turtle.select(1)
+    turtle.placeDown()
+end
+    
+
+function chop_tree()  
+    while not turtle.digUp() or turtle.detectUp() do
+        sleep(1)
+    end
+    turtle.up()
+end
+
+function descend()
+    if not turtle.detectDown() then
+        turtle.down()
+    else
+        sheath_axe()
+    end
+end
+
+function refuel()
+    turtle.select(2)
+    local fire_once = true
+    while turtle.getFuelLevel() < MIN_FUEL_LEVEL do
+        if not turtle.suckDown() then
+            if fire_once then 
+                log("Not enough fuel at station, waiting for more.")
+                fire_once = false
+            end
+            sleep(60)
+        end
+        turtle.refuel()
+    end
+    turtle.forward()
+end
+
+function get_saplings()
+    turtle.select(1)
+    local space = turtle.getItemSpace(1)
+    turtle.suckDown(space)
+    local fire_once = true
+    while turtle.getItemCount(1) < MIN_SAPLINGS do
+        if fire_once then
+            log("Not enough saplings at station, waiting for more.")
+            fire_once = false
+        end
+        sleep(60)
+        turtle.suckDown(turtle.getItemSpace(1))
+    end
+    turtle.forward()
+end
+
+function dump_wood()
+    local total = 0
+    local before
+    for slot = 2, 15 do
+        turtle.select(slot)
+        before = turtle.getItemCount()
+        turtle.dropDown()
+        total = total + before - turtle.getItemCount()
+    end
+    log("Dumped " .. total .. " wood.")
+    turtle.forward()
+end
+
+
+actions = {
+    [ACTION_MOVE_FORWARD] = turtle.forward,
+    [ACTION_TURN_LEFT]    = turtle.turnLeft,
+    [ACTION_TURN_RIGHT]   = turtle.turnRight,
+    
+    [ACTION_PLANT_SAPLING]   = plant_sapling,
+    [ACTION_BEGIN_CHOP_TREE] = begin_chop_tree,
+    [ACTION_CHOP_TREE] = chop_tree,
+    [ACTION_MOVE_DOWN] = descend,    
+    
+    [ACTION_DUMP_WOOD] = dump_wood,
+    [ACTION_REFUEL]    = refuel,
+    [ACTION_HOME]      = stay_home,
+    [ACTION_GET_SAPLINGS] = get_saplings,
+}
+
+
+
+function determine_action()
+    if axe_equipped then
+        return turtle.detectUp()
+           and ACTION_CHOP_TREE 
+            or ACTION_MOVE_DOWN
+    elseif rs.getInput("bottom") then        
+        return turtle.detect() 
+           and ACTION_BEGIN_CHOP_TREE
+            or ACTION_PLANT_SAPLING    
+    else
+        local ok, block = turtle.inspect()
+        if not ok or block.name ~= SIGNAL_BLOCK then
+            ok, block = turtle.inspectDown()
+            if not ok or block.name ~= SIGNAL_BLOCK then
+                ok, block = turtle.inspectUp()
+            end
+        end
+        if ok and block.name == SIGNAL_BLOCK then
+            if SIGNALS[block.metadata] then
+                return SIGNALS[block.metadata]
+            end
+        end
+    end
+    return ACTION_MOVE_FORWARD
+end
+
+
+-- AUX --
+
+function clear_axe_slot()
+    turtle.select(16)
+    for slot = 2, 15 do
+        turtle.transferTo(slot)
+        if turtle.getItemSpace(16) == 64 then
+            return true
+        end
+    end
+end
+
+function is_axe_equipped()
+    turtle.select(16)
+    local item = turtle.getItemDetail()
+    if item and item.name == "minecraft:diamond_axe" then
+        return false
+    elseif item and not clear_axe_slot() then        
+        local ok = turtle.dropDown() or turtle.drop() or turtle.dropUp()
+    end
+
+    turtle.equipLeft()
+    item = turtle.getItemDetail()    
+    if item and item.name == "minecraft:diamond_axe" then
+        turtle.equipLeft()
+        return true
+    else
+        error("Who toke my axe? It's not in slot 16!")
+    end
+end
+
+function wield_axe()
+    assert(not axe_equipped, "Can't wield, axe is already equipped!")
+    turtle.select(16)
+    assert(turtle.equipLeft(), "Could not equip axe!")
+    axe_equipped = true
+    turtle.select(2)
+end
+
+function sheath_axe()
+    assert(axe_equipped, "Can't sheath, axe is not equipped!")
+    turtle.select(16)
+    if not turtle.getItemCount() == 0 then
+        if not clear_axe_slot() then 
+            local ok = turtle.dropDown() or turtle.drop() or turtle.dropUp()
+        end
+    end
+    assert(turtle.equipLeft(), "Could not sheath axe, don't know why.")
+    axe_equipped = false
+    turtle.select(2)
+end
+
+
+
+function print_status(action)
+    local ox, oy = term.getCursorPos()
+    term.setCursorPos(1, 1)
+    term.clearLine()
+    term.write(action .. " | Fuel: " .. turtle.getFuelLevel() / 1000 .. "k")
+    term.setCursorPos(1, 2)
+    term.write(string.rep("=", 39))
+    term.setCursorPos(ox, oy)
+end
+
+
+-- MAIN --
+
+
+function init()
+    axe_equipped = is_axe_equipped()
+    term.clear()
+    term.setCursorPos(1, 4)
+    print("LINCORP INDUSTRIES")
+    print("treelovr 3000 TM")
+    print()
+end
+
+function main()
+    local action
+    while true do
+        action = determine_action()
+        print_status(action)
+        actions[action]()
+    end
+end
+
+init()
+main()
